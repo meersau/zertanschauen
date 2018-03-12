@@ -13,25 +13,45 @@ import (
 
 func main() {
 	zert := make(chan []byte)
+	var reader *os.File
+	var err error
+	if len(os.Args) == 2 {
+		reader, err = os.Open(os.Args[1])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "can't open %s for reading: %s\n", os.Args[1], err)
+			os.Exit(1)
+		}
+		defer reader.Close()
+	} else {
+		reader = os.Stdin
+	}
 
 	go func() {
 		buf := new(bytes.Buffer)
-		scanner := bufio.NewScanner(os.Stdin)
+		foundzert := false
+		scanner := bufio.NewScanner(reader)
+
 		for scanner.Scan() {
 			line := scanner.Text()
-			buf.WriteString(line + "\n")
+			if line == "-----BEGIN CERTIFICATE-----" {
+				foundzert = true
+			}
+			if foundzert {
+				buf.WriteString(line + "\n")
+			}
 			if line == "-----END CERTIFICATE-----" {
 				zert <- buf.Bytes()
 				buf.Reset()
+				foundzert = false
 			}
 		}
 		close(zert)
 	}()
 
 	for z := range zert {
-		block, _ := pem.Decode(z)
+		block, rest := pem.Decode(z)
 		if block == nil {
-			fmt.Print("could not find PEM Block\n")
+			fmt.Printf("could not find PEM Block\n%s\n", rest)
 			continue
 		}
 		cert, err := x509.ParseCertificate(block.Bytes)
